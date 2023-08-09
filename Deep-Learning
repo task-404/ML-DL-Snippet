@@ -1,0 +1,411 @@
+from collections import Counter
+import re
+import pandas as pd
+import seaborn as sns
+import nltk
+from keras.models import Sequential
+from keras import layers
+from keras.backend import clear_session
+from sklearn import svm
+from sklearn.metrics import accuracy_score
+import tensorflow as tf
+import matplotlib.pyplot as plt
+from keras.layers import Dense
+from nltk.corpus import wordnet
+from nltk.stem import WordNetLemmatizer
+#nltk.download('stopwords')
+#nltk.download('punkt')
+#nltk.download('wordnet')
+from nltk.corpus import wordnet
+lemmatizer = WordNetLemmatizer() 
+#nltk.download('omw-1.4')
+import string
+string.punctuation
+from nltk.corpus import stopwords
+from sklearn.metrics import classification_report,confusion_matrix,accuracy_score
+from sklearn.ensemble import RandomForestClassifier
+import matplotlib.pyplot as plt
+from tensorflow.keras.layers import Embedding
+from tensorflow.keras.layers import LSTM
+from keras.layers import Dropout
+from sklearn.preprocessing import LabelEncoder
+from sklearn.model_selection import GridSearchCV
+from sklearn.naive_bayes import GaussianNB, MultinomialNB
+import gensim
+from sklearn.naive_bayes import BernoulliNB
+
+#Spellchecker currently not used
+#spell = SpellChecker()
+#Load the Dataset
+HSDataset = pd.read_csv('Hatespeech_dataset.csv',nrows= 20148)
+#Only use certain columns
+HS_list = ['toxic','non-toxic']
+label_toxic = HSDataset[HSDataset["final_label"].isin(HS_list)]
+HSDatasetText = label_toxic["text"]
+Size_HSDataset = len(HSDataset['text'])
+final_label = label_toxic['final_label']
+#####################################PREPROCESSING#########################################################
+
+
+
+#########################################PREPROCESSING#############################################################
+import numpy as np
+from keras.preprocessing.text import Tokenizer
+from sklearn.model_selection import train_test_split
+
+le = LabelEncoder()
+
+y = le.fit_transform(final_label)
+
+#split data
+# sentences_train, sentences_test, y_train, y_test = train_test_split(
+#         HSDatasetText, y, test_size=0.25, random_state=1000)
+#preprocess data
+def load_glove_model(File):
+    print("Loading Glove Model")
+    glove_model = {}
+    with open(File,'r',encoding='utf-8') as f:
+        for line in f:
+            split_line = line.split()
+            word = split_line[0]
+            embedding = np.array(split_line[1:], dtype=np.float64)
+            glove_model[word] = embedding
+    print(f"{len(glove_model)} words loaded!")
+    return glove_model
+
+glove_model = load_glove_model('glove.6B.300d.txt')
+
+#Used for the lemmatizer to specify if the word is a noun, verb etc.
+
+#Exclude these words/emojis from the dataset
+stop_words = stopwords.words('english')
+stop_words.extend(["<number>", "<user>","user","number"])
+#add all unique words 
+with open('unique.txt',encoding='utf-8') as unique:
+    for line in unique:
+        stop_words.extend(line.strip().split())
+
+emoji_pattern = re.compile("["
+    u"\U0001F600-\U0001F64f"  # emoticons
+    u"\U0001F300-\U0001F5ff"  # symbols & pictographs
+    u"\U0001F680-\U0001F6ff"  # transport & map symbols
+    u"\U0001f900-\U0001f9ff"  # supplementary symbols
+    u"\U00002702-\U000027b0"
+    u"\U000024C2-\U0001F251"
+    "]+", flags=re.UNICODE)
+
+#Preprocessing Part making sure to keep the shape of data and label in case one data row will be deleted
+#due to it being empty
+def data_pre_processing(data, labels):
+    clean_data = []
+    clean_labels = []
+    for i, label in zip(data, labels):
+            review = "".join([Word for Word in i if Word not in string.punctuation])
+            #delete numbers
+            review = re.sub(r'\d+', '', review)
+            review = review.split()
+            #delete one char words
+            review = [word for word in review if len(word) > 1]
+            review = [word for word in review if not word in stop_words]
+            #remove Smileys
+            review = [emoji_pattern.sub(r'', word) for word in review]
+            #remove empty parts from the row
+            review = list(filter(str.strip, review))
+            #remove empty rows
+            if len(review) != 0:
+                clean_data.append(review)
+                clean_labels.append(label)
+    return clean_data, clean_labels
+
+#Split the data
+sentences_train, sentences_test, y_train, y_test = train_test_split(
+        HSDatasetText, y, test_size=0.20, random_state=1000)
+
+sentences_train, y_train = data_pre_processing(sentences_train, y_train)
+sentences_test, y_test = data_pre_processing(sentences_test, y_test)
+
+#Making GloVe Vectors
+def trainning_data(sentences_train):
+    docs_vectors = pd.DataFrame()
+    stopwords = nltk.corpus.stopwords.words('english')
+    for Sententence in sentences_train:
+        temp = pd.DataFrame()
+        for word in Sententence: # looping through each word of a single document and spliting through space
+                if word not in stopwords: # if word is not present in stopwords then (try)
+                    try:
+                        word_vec = glove_model[word]
+                        temp = temp.append(pd.Series(word_vec), ignore_index = True)
+                    except:
+                        pass
+        doc_vector = temp.mean() # take the average of each column(w0, w1, w2,........w300)
+        docs_vectors = docs_vectors.append(doc_vector, ignore_index = True) # append each document value to the final dataframe
+        docs_vectors = docs_vectors.fillna(doc_vector.mean())
+    docs_vectors.shape
+    return docs_vectors
+
+glovetrain_vectors = trainning_data(sentences_train)
+glovetest_vectors = trainning_data(sentences_test)
+
+##############################################SVM################################################################
+#C=10,kernel='rbf', gamma='auto',degree=3 accuracy->0.71, Datasize 10000
+#Best parameters for SVM:  {'C': 10, 'gamma': 'scale', 'kernel': 'rbf'}
+#Best parameters for SVM:  {'C': 1, 'gamma': 'scale', 'kernel': 'rbf'}
+#Best score for SVM:  0.6717105851631009
+print("Processing SVM")
+clf = svm.SVC(C=10,kernel='rbf', gamma='scale',degree=10)
+# train the classifier
+#param_grid_svm = {'C': [0.01,0.1, 1, 10], 'kernel': ['linear', 'rbf'], 'gamma': [1, 'auto', 'scale']}
+
+#grid_svm = GridSearchCV(clf, param_grid_svm, cv=5)
+
+#grid_svm.fit(glovetrain_vectors, y_train)
+
+#print("Best parameters for SVM: ", grid_svm.best_params_)
+#print("Best score for SVM: ", grid_svm.best_score_)
+
+#clf.fit(glovetrain_vectors, y_train)
+
+# make predictions on the test set
+#y_pred_SVM = clf.predict(glovetest_vectors)
+
+# evaluate the model
+#accuracy_SVM = accuracy_score(y_test, y_pred_SVM)
+#print("Accuracy: ", accuracy_SVM)
+#accuracy_score(y_test, y_pred_SVM)
+#report=classification_report(y_test,y_pred_SVM)
+#print(report)
+#matrix=confusion_matrix(y_test,y_pred_SVM)
+#sns.heatmap(matrix, annot=True)
+#plt.plot(matrix)
+#plt.show()
+
+#####################################RANDOM FORREST##############################################################
+#n_estimators=300,criterion='entropy', max_depth=20 -> 67 % 20000 Dataset
+#Best Parameters:  {'criterion': 'gini', 'max_depth': 15, 'max_features': 'sqrt', 'n_estimators': 300}
+#Best Score:  0.6578896169848931
+#criterion= 'gini', max_depth=15, max_features= 'sqrt', n_estimators= 300 ->  0.68% 20000 Dataset
+print("Processing RF")
+#model = RandomForestClassifier(criterion= 'entropy', max_depth=15, max_features= 'auto', n_estimators= 300)
+#Parameters i want to use in the GridSearch
+param_grid = {'n_estimators': [200,300, 500],
+    'max_features': ['auto', 'sqrt', 'log2'],
+    'max_depth' : [4,5,6,7,8,15,20],
+    'criterion' :['gini', 'entropy']}
+
+# Define the scoring metric
+scoring = 'accuracy'
+
+# Create the GridSearchCV object
+#grid_search = GridSearchCV(model, param_grid, scoring=scoring)
+
+# Fit the GridSearchCV object to the data
+#grid_search.fit(glovetrain_vectors, y_train)
+
+#print("Best Parameters: ", grid_search.best_params_)
+#print("Best Score: ", grid_search.best_score_)
+
+#model.fit(glovetrain_vectors, y_train)
+
+#test_pred = model.predict(glovetest_vectors)
+
+#accuracy_score(y_test, test_pred)
+#report=classification_report(y_test,test_pred)
+#print(report)
+#matrix=confusion_matrix(y_test,test_pred)
+#sns.heatmap(matrix, annot=True)
+#plt.plot(matrix)
+#plt.show()
+
+########################################NAIVE BAYES########################################################
+# Create an instance of the classifier
+#Best parameters for Gaussian NB:  {'var_smoothing': 1e-09}
+#Best score for Gaussian NB:  0.6206868784630232
+print("Processing GNB")
+bnb = BernoulliNB(alpha = 1)
+
+#grid_gnb = GridSearchCV(bnb, param_grid_gnb, cv=5)
+
+#grid_gnb.fit(glovetrain_vectors, y_train)
+
+#print("Best parameters for Gaussian NB: ", grid_gnb.best_params_)
+#print("Best score for Gaussian NB: ", grid_gnb.best_score_)
+# Train the classifier on the training data
+#bnb.fit(glovetrain_vectors, y_train)
+
+# Make predictions on the test data
+#y_pred_NB = bnb.predict(glovetest_vectors)
+
+#Evaluate the performance of the classifier
+#accuracy_NB = accuracy_score(y_test, y_pred_NB)
+#print("Accuracy: ",accuracy_NB)
+#report=classification_report(y_test,y_pred_NB)
+#print(report)
+#matrix=confusion_matrix(y_test,y_pred_NB)
+#sns.heatmap(matrix, annot=True)
+#plt.plot(matrix)
+#plt.show()
+
+######################################LSTM NEURONAL NETWORK#####################################################
+
+tokenizer = Tokenizer(num_words=3000)
+#TODO Try using the first data split sample
+tokenizer.fit_on_texts(sentences_train)
+
+
+sentences_train, validation_x, y_train, y_validation = train_test_split(
+        sentences_train, y_train, test_size=0.25, random_state=1000)
+
+#Train and Testing to Sequence
+
+X_train = tokenizer.texts_to_sequences(sentences_train)
+X_test = tokenizer.texts_to_sequences(sentences_test)
+validation_x = tokenizer.texts_to_sequences(validation_x)
+
+
+vocab_size = len(tokenizer.word_index) + 1
+print(sentences_train[45])
+print(X_train[45])
+
+print("building Matrix.....")
+def create_embedding_matrix(filepath, word_index, embedding_dim):
+    vocab_size = len(word_index) + 1  # Adding again 1 because of reserved 0 index
+    embedding_matrix = np.zeros((vocab_size, embedding_dim))
+
+    with open(filepath, encoding="utf8") as f:
+        for line in f:
+            word, *vector = line.split()
+            if word in word_index:
+                idx = word_index[word] 
+                embedding_matrix[idx] = np.array(
+                    vector, dtype=np.float32)[:embedding_dim]
+
+    return embedding_matrix
+
+embedding_dim = 50
+embedding_matrix = create_embedding_matrix('glove.6B.300d.txt',tokenizer.word_index, embedding_dim)
+
+#TODO Reduce Zeros to the Maxiumum Sentence Length
+X_train = tf.keras.preprocessing.sequence.pad_sequences(X_train, maxlen=50,padding='post', truncating='post')
+X_test = tf.keras.preprocessing.sequence.pad_sequences(X_test, maxlen=50,padding='post', truncating='post')
+validation_x = tf.keras.preprocessing.sequence.pad_sequences(validation_x, maxlen=50,padding='post', truncating='post')
+#input_dim = X1_train.shape[1]  # Number of features
+model=Sequential()
+
+print("starting with neural network....")
+#TODO Fix input_lenght to max sequence length e.g 50 
+model.add(Embedding(vocab_size,50,weights=[embedding_matrix],input_length=50,trainable=False))
+model.add(LSTM(100))# 100 neuron 
+model.add(Dropout(0.3))
+model.add(Dense(300,activation='relu'))
+model.add(Dropout(0.3))
+model.add(Dense(150,activation='relu'))
+model.add(Dropout(0.3))
+model.add(Dense(1,activation='sigmoid'))
+model.compile(loss='binary_crossentropy',optimizer='adam',metrics=['accuracy'])
+
+clear_session()
+
+print(model.input_shape)
+
+X_train = np.array(X_train)
+y_train = np.array(y_train)
+
+validation_x = np.array(validation_x)
+
+X_test = np.array(X_test)
+y_test = np.array(y_test)
+
+history = model.fit(X_train,np.array(y_train),batch_size=32,epochs=10,validation_data=(validation_x,np.array(y_validation)),verbose = 2) # Changes made validation -> x_test y_test
+
+#model.save("Deep_Learning_Model_TeamToxic.tf")
+
+#########################################EVALUATION LSTM###########################################################
+#print(history.history.keys())
+# summarize history for accuracy
+plt.plot(history.history['accuracy'])
+plt.plot(history.history['val_accuracy'])
+plt.title('model accuracy')
+plt.ylabel('accuracy')
+plt.xlabel('epoch')
+plt.legend(['train', 'test'], loc='upper left')
+plt.show()
+
+loss, accuracy = model.evaluate(np.array(X_train), np.array(y_train), verbose=False)
+print("Training Accuracy: {:.4f}".format(accuracy))
+loss, accuracy = model.evaluate(np.array(X_test), np.array(y_test), verbose=False)
+print("Testing Accuracy:  {:.4f}".format(accuracy))
+
+#plt.style.use('ggplot')
+
+
+
+
+plt.style.use('ggplot')
+
+def plot_history(history):
+    acc = history.history['accuracy']
+    val_acc = history.history['val_accuracy']
+    loss = history.history['loss']
+    val_loss = history.history['val_loss']
+    x = range(1, len(acc) + 1)
+
+    plt.figure(figsize=(12, 5))
+    plt.subplot(1, 2, 1)
+    plt.plot(x, acc, 'b', label='Training accuracy')
+    plt.plot(x, val_acc, 'r', label='Validation accuracy')
+    plt.title('Training and validation accuracy')
+    plt.legend()
+    plt.subplot(1, 2, 2)
+    plt.plot(x, loss, 'b', label='Training loss')
+    plt.plot(x, val_loss, 'r', label='Validation loss')
+    plt.title('Training and validation loss')
+    plt.legend()
+    plt.show()
+
+plot_history(history)
+
+print('\nClassification Report\n')
+y_pred = np.round(model.predict(X_test))
+print(classification_report(y_test, y_pred))
+
+cm =confusion_matrix(y_pred,np.array(y_test))
+sns.heatmap(cm, annot=True)
+plt.show()
+############################################CNN###########################################################
+embedding_dim = 50 #100
+
+model = Sequential()
+model.add(layers.Embedding(vocab_size, embedding_dim, input_length=50))
+model.add(layers.Conv1D(128, 5, activation='relu'))
+model.add(layers.GlobalMaxPooling1D())
+model.add(layers.Dense(10, activation='relu'))
+model.add(layers.Dense(1, activation='sigmoid'))
+model.compile(optimizer='adam',
+              loss='binary_crossentropy',
+              metrics=['accuracy'])
+model.summary()
+
+clear_session()
+
+history = model.fit(X_train, y_train,
+                    epochs=10,
+                    verbose=2,
+                    validation_data=(validation_x,np.array(y_validation)),
+                    batch_size=32)
+loss, accuracy = model.evaluate(X_train, y_train, verbose=False)
+print("Training Accuracy: {:.4f}".format(accuracy))
+loss, accuracy = model.evaluate(X_test, y_test, verbose=False)
+print("Testing Accuracy:  {:.4f}".format(accuracy))
+plot_history(history)
+
+plt.plot(history.history['accuracy'])
+plt.plot(history.history['val_accuracy'])
+plt.title('model accuracy')
+plt.ylabel('accuracy')
+plt.xlabel('epoch')
+plt.legend(['train', 'test'], loc='upper left')
+plt.show()
+
+print('\nClassification Report\n')
+y_pred = np.round(model.predict(X_test))
+print(classification_report(y_test, y_pred))
