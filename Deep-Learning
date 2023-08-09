@@ -57,10 +57,10 @@ le = LabelEncoder()
 
 y = le.fit_transform(final_label)
 
-#split data
+#split the dataset with a test size of 25%
 # sentences_train, sentences_test, y_train, y_test = train_test_split(
 #         HSDatasetText, y, test_size=0.25, random_state=1000)
-#preprocess data
+#load pre-trained word embedding from a GloVe model file
 def load_glove_model(File):
     print("Loading Glove Model")
     glove_model = {}
@@ -74,8 +74,6 @@ def load_glove_model(File):
     return glove_model
 
 glove_model = load_glove_model('glove.6B.300d.txt')
-
-#Used for the lemmatizer to specify if the word is a noun, verb etc.
 
 #Exclude these words/emojis from the dataset
 stop_words = stopwords.words('english')
@@ -117,14 +115,14 @@ def data_pre_processing(data, labels):
                 clean_labels.append(label)
     return clean_data, clean_labels
 
-#Split the data
+#Split the data with a test size of 20%
 sentences_train, sentences_test, y_train, y_test = train_test_split(
         HSDatasetText, y, test_size=0.20, random_state=1000)
 
 sentences_train, y_train = data_pre_processing(sentences_train, y_train)
 sentences_test, y_test = data_pre_processing(sentences_test, y_test)
 
-#Making GloVe Vectors
+#Generating vectors by using pre-trained GloVe embeddings
 def trainning_data(sentences_train):
     docs_vectors = pd.DataFrame()
     stopwords = nltk.corpus.stopwords.words('english')
@@ -147,13 +145,14 @@ glovetrain_vectors = trainning_data(sentences_train)
 glovetest_vectors = trainning_data(sentences_test)
 
 ##############################################SVM################################################################
+#Personal Note
 #C=10,kernel='rbf', gamma='auto',degree=3 accuracy->0.71, Datasize 10000
 #Best parameters for SVM:  {'C': 10, 'gamma': 'scale', 'kernel': 'rbf'}
 #Best parameters for SVM:  {'C': 1, 'gamma': 'scale', 'kernel': 'rbf'}
 #Best score for SVM:  0.6717105851631009
 print("Processing SVM")
 clf = svm.SVC(C=10,kernel='rbf', gamma='scale',degree=10)
-# train the classifier
+#Here we're fine tuning our SVM model by a grid of hyperparameters 
 #param_grid_svm = {'C': [0.01,0.1, 1, 10], 'kernel': ['linear', 'rbf'], 'gamma': [1, 'auto', 'scale']}
 
 #grid_svm = GridSearchCV(clf, param_grid_svm, cv=5)
@@ -180,13 +179,14 @@ clf = svm.SVC(C=10,kernel='rbf', gamma='scale',degree=10)
 #plt.show()
 
 #####################################RANDOM FORREST##############################################################
+#Personal Note
 #n_estimators=300,criterion='entropy', max_depth=20 -> 67 % 20000 Dataset
 #Best Parameters:  {'criterion': 'gini', 'max_depth': 15, 'max_features': 'sqrt', 'n_estimators': 300}
 #Best Score:  0.6578896169848931
 #criterion= 'gini', max_depth=15, max_features= 'sqrt', n_estimators= 300 ->  0.68% 20000 Dataset
 print("Processing RF")
 #model = RandomForestClassifier(criterion= 'entropy', max_depth=15, max_features= 'auto', n_estimators= 300)
-#Parameters i want to use in the GridSearch
+#Here we're fine tuning our RF model by a grid of hyperparameters 
 param_grid = {'n_estimators': [200,300, 500],
     'max_features': ['auto', 'sqrt', 'log2'],
     'max_depth' : [4,5,6,7,8,15,20],
@@ -217,7 +217,7 @@ scoring = 'accuracy'
 #plt.show()
 
 ########################################NAIVE BAYES########################################################
-# Create an instance of the classifier
+#Personal Note
 #Best parameters for Gaussian NB:  {'var_smoothing': 1e-09}
 #Best score for Gaussian NB:  0.6206868784630232
 print("Processing GNB")
